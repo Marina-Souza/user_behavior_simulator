@@ -12,6 +12,10 @@ import (
 	"time"
 )
 
+var domains = [2]string{"191.36.8.53:4040", "191.36.8.54:4040"}
+
+//var domainsDatabase = [3]string{"191.36.8.53:6060", "191.36.8.54:6060", "tccmarina.sj.ifsc.edu.br/app"}
+
 type ItemUpdate struct {
 	Id      string `json:"id"`
 	Collumn string `json:"collumn"`
@@ -69,6 +73,7 @@ func getListFromFile(path string) []string {
 }
 
 func deleteProduct(id string) {
+
 	log.Printf("Removendo item: %s", id)
 	item := ItemDelete{id}
 	jsonReq, err := json.Marshal(item)
@@ -80,41 +85,65 @@ func deleteProduct(id string) {
 	if err != nil {
 		log.Fatalln(err)
 	}
-
 	defer resp.Body.Close()
+
 }
 
 func updateProduct(id string) {
+
 	log.Printf("Atualizando item: %s", id)
 	item := ItemUpdate{id, "title", "Titulo atualizado"}
 	jsonReq, err := json.Marshal(item)
-	req, err := http.NewRequest(http.MethodPut, "https://tccmarina.sj.ifsc.edu.br/app/update", bytes.NewBuffer(jsonReq))
+	requestURL := fmt.Sprintf("https://tccmarina.sj.ifsc.edu.br/app/update")
+	req, err := http.NewRequest(http.MethodPut, requestURL, bytes.NewBuffer(jsonReq))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	client := &http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
 		log.Fatalln(err)
 	}
-
 	defer resp.Body.Close()
+
 }
 
-func searchTerm(s string) {
-	start := time.Now()
-	requestURL := fmt.Sprintf("https://tccmarina.sj.ifsc.edu.br/finder/search/%s", s)
-	res, err := http.Get(requestURL)
-	elapsed := time.Since(start).Seconds()
+func openFile(filename string) *os.File {
+	file, err := os.OpenFile(filename,
+		os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		fmt.Printf("Erro: %s\n", err)
-		os.Exit(1)
+		log.Println(err)
 	}
-	log.Printf("Bucando item: %s, status code: %d, tempo de resposta: %f ", s, res.StatusCode, elapsed)
+	return file
 }
 
-func searchItens(queries []string) {
+func writeFile(file *os.File, str string) {
+	if _, err := file.WriteString(str); err != nil {
+		log.Println(err)
+	}
+
+}
+
+func searchTerm(term string, file *os.File) {
+	for _, domain := range domains {
+		start := time.Now()
+		requestURL := fmt.Sprintf("http://%s/search/%s", domain, term)
+		res, err := http.Get(requestURL)
+		elapsed := time.Since(start).Seconds()
+		if err != nil {
+			logs := fmt.Sprintf("%s, %s, %s, %d, %f, %s \n", start.Format(time.UnixDate), domain, term, 516, elapsed, err)
+			writeFile(file, logs)
+			continue
+		}
+		logs := fmt.Sprintf("%s, %s, %s, %d, %f \n", start.Format(time.UnixDate), domain, term, res.StatusCode, elapsed)
+		writeFile(file, logs)
+		log.Printf("Bucando item: %s, status code: %d, tempo de resposta: %f ", term, res.StatusCode, elapsed)
+
+	}
+}
+
+func searchItens(queries []string, file *os.File) {
+	writeFile(file, "Time, EndPoint, Termo, StatusCode, ResponseTime, Details \n")
 	for _, query := range queries {
-		wait(1)
-		searchTerm(query)
+		searchTerm(query, file)
 	}
 }
 
@@ -133,11 +162,11 @@ func removeItens(ids []string) {
 }
 
 func main() {
-
+	file := openFile("logs.txt")
 	var queries = getListFromFile("./frequent-terms")
 	var updatedIds = getListFromFile("./updated-ids")
 	var removedIds = getListFromFile("./deleted-ids")
 	go updateItens(updatedIds)
 	go removeItens(removedIds)
-	searchItens(queries)
+	searchItens(queries, file)
 }
